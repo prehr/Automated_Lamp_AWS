@@ -1,0 +1,183 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: "Creates ec2 resources for LAMP stack."
+
+Parameters:
+  VPC:
+    Type: String
+    Default: lamp-vpc
+    Description: Name of VPC stack
+  AMI:
+    Type: String
+    Default: ami-090fa75af13c156b4
+    Description: Amazon linux 2
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    Description: Free tier instance
+  AsgMinSize:
+    Type: Number
+    Default: 2
+    Description: ASG min size
+  AsgMaxSize:
+    Type: Number
+    Default: 2
+    Description: ASG max size
+  AsgDesiredCapacity:
+    Type: Number
+    Default: 2
+    Description: ASG desired size
+  ProductTag:
+    Type: String
+    Default: automated-lamp
+    Description: tag for resource naming/billing tracking
+  LampS3Bucket:
+    Type: String
+    Default: lamp-resource-bucket
+    Description: Bucket containing resource code
+
+Resources:
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: "/"
+      RoleName: AppRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM"
+      Policies:
+        - PolicyName: "automated-lamp-get-resources"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:getObject"
+                Resource: !Sub arn:aws:s3:::${LampS3Bucket}/*
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - Ref: AppRole
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: allow access to ALB from internet
+      VpcId: !ImportValue 
+        Fn::Sub: ${VPC}-VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: allow access to app from ALB
+      VpcId: !ImportValue 
+        Fn::Sub: ${VPC}-VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  AppLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      AssociatePublicIpAddress: true
+      ImageId: !Ref AMI
+      InstanceType: !Ref InstanceType
+      SecurityGroups: [!Ref AppSecurityGroup]
+      IamInstanceProfile: !Ref InstanceProfile
+      UserData:
+        "Fn::Base64": !Sub |
+          #!/bin/bash -x
+          sudo yum update -y
+          sudo amazon-linux-extras install php8.0
+          sudo yum install -y httpd mariadb
+          sed -i "s|index.html|index.php|g" /etc/httpd/conf/httpd.conf
+          aws s3 cp s3://${LampS3Bucket}/apache/index.php  /var/www/html/index.php
+          service httpd start
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource AppAutoScalingGroup --region ${AWS::Region}
+  AppAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MaxBatchSize: '1'
+        MinInstancesInService: '1'
+        PauseTime: PT15M
+        WaitOnResourceSignals: 'true'
+    Properties:
+      DesiredCapacity: !Ref AsgDesiredCapacity
+      MinSize: !Ref AsgMinSize
+      MaxSize: !Ref AsgMaxSize
+      LaunchConfigurationName: !Ref AppLaunchConfig
+      VPCZoneIdentifier:
+      - !ImportValue 
+        Fn::Sub: ${VPC}-PrivateSubnet1
+      - !ImportValue
+        Fn::Sub: ${VPC}-PrivateSubnet2
+      TargetGroupARNs:
+        - Ref: ALBTargetGroup
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}
+        PropagateAtLaunch: true
+      - Key: Product
+        Value: !Ref 'ProductTag'
+        PropagateAtLaunch: true
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Subnets:
+      - !ImportValue
+        Fn::Sub: ${VPC}-PublicSubnet1
+      - !ImportValue
+        Fn::Sub: ${VPC}-PublicSubnet2
+      SecurityGroups:
+        - Ref: ALBSecurityGroup
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      VpcId: !ImportValue 
+        Fn::Sub: ${VPC}-VPC
+Outputs:
+  AppUrl:
+    Description: App URL
+    Value:
+      Fn::Join:
+        - ""
+        - - http://
+          - !GetAtt ApplicationLoadBalancer.DNSName
+          - ":80/"

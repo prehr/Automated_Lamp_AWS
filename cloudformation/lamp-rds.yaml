@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Creates mysql db and required subnet group"
+Parameters:
+  VPC:
+    Type: String
+    Default: lamp-vpc
+    Description: Name of VPC stack
+  DatabaseName:
+    Default: lamp-rds-cluster
+    Description: Database name
+    Type: String
+  MasterUsername:
+    Default: admin
+    Description: Database admin account
+    Type: String
+  MasterPassword:
+    NoEcho: true
+    Description: Database admin password
+    Type: String
+    Default: "{{resolve:secretsmanager:rds/lamp/password:SecretString:lamp-rds-password}}"
+  InstanceType:
+    Description: Smallest database instance type
+    Type: String
+    Default: db.t2.small
+  ProductTag:
+    Type: String
+    Default: automated-lamp
+    Description: tag for resource naming/billing tracking
+
+Resources:
+  RDSSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Database instances security group"
+      VpcId: !ImportValue
+        Fn::Sub: ${VPC}-VPC
+      SecurityGroupIngress:
+        - CidrIp: 10.1.0.0/16
+          FromPort: 3306
+          IpProtocol: "tcp"
+          ToPort: 3306
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: "-1"
+
+  RDSSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: "Subnet group for mysql database"
+      DBSubnetGroupName: !Sub "${AWS::StackName}-rds-subnet-group"
+      SubnetIds:
+        - !ImportValue
+          Fn::Sub: ${VPC}-PrivateSubnet1
+        - !ImportValue
+          Fn::Sub: ${VPC}-PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub DB-SG-${AWS::StackName}
+        - Key: Product
+          Value: !Ref "ProductTag"
+
+  RDSCluster:
+    Type: "AWS::RDS::DBCluster"
+    Properties:
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterPassword
+      DBClusterIdentifier: !Ref DatabaseName
+      Engine: aurora-mysql
+      EngineVersion: 5.7.mysql_aurora.2.09.2
+      VpcSecurityGroupIds:
+        - !Ref RDSSecurityGroup
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+
+  RDSInstance1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref RDSCluster
+      DBInstanceIdentifier: lamp-db-instance-1
+      DBInstanceClass: !Ref InstanceType
+      Engine: aurora-mysql
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      Tags:
+        - Key: Name
+          Value: !Sub rds-instanace-1-${AWS::StackName}
+        - Key: Product
+          Value: !Ref "ProductTag"
+
+  RDSInstance2:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref RDSCluster
+      DBInstanceIdentifier: lamp-db-instance-2
+      DBInstanceClass: !Ref InstanceType
+      Engine: aurora-mysql
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      Tags:
+        - Key: Name
+          Value: !Sub rds-instanace-2-${AWS::StackName}
+        - Key: Product
+          Value: !Ref "ProductTag"
+
+Outputs:
+  RDSSubnetGroup:
+    Description: Subnet group for mysql database
+    Value: !Ref "RDSSubnetGroup"
+    Export:
+      Name: !Sub "${AWS::StackName}-RDSSubnetGroup"

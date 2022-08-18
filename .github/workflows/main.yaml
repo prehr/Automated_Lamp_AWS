@@ -1,0 +1,29 @@
+name: Lamp CI
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+      - name: LAMP resource bucket
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: true
+        run: ./.github/scripts/populate-bucket.sh
+        shell: bash
+
+      - name: Create and update stacks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: true
+        run: |
+          ./.github/scripts/create-stack.sh lamp-vpc ./cloudformation/lamp-vpc.yaml
+          ./.github/scripts/create-stack.sh lamp-app ./cloudformation/lamp-app.yaml
+          ./.github/scripts/create-stack.sh lamp-rds ./cloudformation/lamp-rds.yaml
+        shell: bash
