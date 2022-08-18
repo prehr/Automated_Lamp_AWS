@@ -100,7 +100,6 @@ Resources:
   AppLaunchConfig:
     Type: AWS::AutoScaling::LaunchConfiguration
     Properties:
-      AssociatePublicIpAddress: true
       ImageId: !Ref AMI
       InstanceType: !Ref InstanceType
       SecurityGroups: [!Ref AppSecurityGroup]

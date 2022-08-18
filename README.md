@@ -7,7 +7,7 @@ Deploys a LAMP stack within AWS specifically designed for us-east-1.
 - Load balancer to route requests across both AZs. 
 - RDS aurora-mysql cluster containing two instances for redundancy.
 - S3 bucket for storing apache code; currently only uses a custom index.php.
-- Github workflow to oversee lamp creation and updates.
+- Github workflow to oversee LAMP creation and updates.
 - Workflow scripts to create all resources and perform updates.
 
 ## Getting Started
@@ -64,6 +64,6 @@ mysql -h lamp-rds-cluster.cluster-xxxxxxxxx.us-east-1.rds.amazonaws.com -P 3306 
 ### Future Improvements
 - Implement some form of monitoring; i.e cloudwatch alerts, prometheus.
 - CF improvements - health checks, conditionals for multiregion support.
-- Secuirty improvements, maybe a WAF for implementing rules/limits.
+- Security improvements, maybe a WAF for implementing rules/limits.
 - Better CI/CD (CodeDeploy, Jenkins) for the apache configs and php site code.
 - Better cleanup on failures; if the github workflow fails stacks will remain created.
