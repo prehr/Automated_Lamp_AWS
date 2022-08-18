@@ -1,4 +1,4 @@
-name: Lamp CI
+name: Lamp CI/CD
 
 on:
   push:
